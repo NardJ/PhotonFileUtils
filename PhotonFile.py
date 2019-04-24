@@ -305,7 +305,7 @@ class PhotonFile:
                     if bTitle == "Image Data": bNr = dataSize
                     self.Previews[previewNr][bTitle] = binary_file.read(bNr)
                     if bTitle == "Data Length": dataSize = PhotonFile.bytes_to_int(self.Previews[previewNr][bTitle])
-	    
+
             layerDefAddr=PhotonFile.bytes_to_int(self.Header["Layer Defs (addr)"])
             binary_file.seek(layerDefAddr)
 
@@ -407,24 +407,24 @@ class PhotonFile:
         n = len(x)
         if n == 0:
             return numpy.array([], dtype=numpy.int)
-        starts = numpy.r_[0, where(~numpy.isclose(x[1:], x[:-1], equal_nan=True)) + 1]
+        starts = numpy.r_[0, where((x[1:] - x[:-1]).astype(bool)) + 1]
         lengths = numpy.diff(numpy.r_[starts, n])
         values = x[starts]
-        #ret=np.dstack((lengths, values))[0]
 
         # Reduce repetitions of color to max 0x7D/125 and store in bytearray
-        rleData = bytearray()
-        for (nr, col) in zip(lengths,values):
-            color = (col>0)
-            while nr > 0x7D:
-                encValue = (color << 7) | 0x7D
-                rleData.append(encValue)
-                nr = nr - 0x7D
-            encValue = (color << 7) | nr
-            rleData.append(encValue)
+        repetitions = lengths // 0x7d  # length of each run. calculated with integer division
+        run_ends = lengths % 0x7d  # remaining part of the run, calculated with mod
+        bin_colors = (values > 0) << 7 | 0x7d   # convert colors to binary representation
+        repetitions[run_ends == 0] = repetitions[run_ends == 0] - 1   # 'fix' for 42 % 42 == 0. repetitions get used as numpy.insert indexes, and 0 means no insertion.
+        run_ends[run_ends == 0] = 0x7D   # again 'fix' for 42 % 42 == 0.
+        bin_run_ends = (values > 0) << 7 | run_ends   # binary representation of last values in the run
+
+        data = numpy.repeat(bin_colors, repetitions)     # fill array with runs
+        data = numpy.insert(data, repetitions.cumsum(), bin_run_ends)   # insert the last elements of each run
 
         # Needed is an byte string, so convert
-        return bytes(rleData)
+        rle_data = data.astype('uint8').tobytes()
+        return rle_data
 
 
     def encodedBitmap_Bytes_nonumpy(filename):
